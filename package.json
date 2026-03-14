@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Backend implementation for the Event-Driven Notification Platform.",
+  "license": "MIT",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -282,4 +282,4 @@ See [`docs/10-future-improvements.md`](./docs/10-future-improvements.md) for the
 
 ## License
 
-License to be determined.
+This project is licensed under the [MIT License](./LICENSE).
