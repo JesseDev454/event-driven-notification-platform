@@ -9,6 +9,7 @@
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
     "worker": "tsx src/workers/event-processing.worker.ts",
+    "worker:retry": "tsx src/workers/delivery-retry.worker.ts",
     "test": "jest --runInBand"
   },
   "dependencies": {

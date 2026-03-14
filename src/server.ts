@@ -3,6 +3,12 @@ import { createEventProcessingQueue, setEventProcessingQueue } from './config/bu
 import { initializeDatabase } from './config/database';
 import { loadEnv } from './config/env';
 import { createRedisConnection, createRedisOptions } from './config/redis';
+import { createAppSecurityConfig } from './config/security';
+import { DeliveryAttemptEntity } from './modules/delivery-attempts/entities/delivery-attempt.entity';
+import { DeliveryAttemptRepository } from './modules/delivery-attempts/repositories/delivery-attempt.repository';
+import { DeliveryEntity } from './modules/deliveries/entities/delivery.entity';
+import { DeliveryRepository } from './modules/deliveries/repositories/delivery.repository';
+import { DeliveryInspectionService } from './modules/deliveries/services/delivery-inspection.service';
 import { EventEntity } from './modules/events/entities/event.entity';
 import { EventRepository } from './modules/events/repositories/event.repository';
 import { EventService } from './modules/events/services/event.service';
@@ -12,6 +18,7 @@ import { SubscriptionService } from './modules/subscriptions/services/subscripti
 
 const bootstrap = async (): Promise<void> => {
   const env = loadEnv();
+  const securityConfig = createAppSecurityConfig(env);
   const dataSource = await initializeDatabase(env);
   const redisConnection = createRedisConnection(env);
   const redisOptions = createRedisOptions(env);
@@ -24,11 +31,26 @@ const bootstrap = async (): Promise<void> => {
     dataSource.getRepository(EventEntity)
   );
   const eventService = new EventService(eventRepository);
+  const deliveryRepository = new DeliveryRepository(
+    dataSource.getRepository(DeliveryEntity)
+  );
+  const deliveryAttemptRepository = new DeliveryAttemptRepository(
+    dataSource.getRepository(DeliveryAttemptEntity)
+  );
   const subscriptionRepository = new SubscriptionRepository(
     dataSource.getRepository(SubscriptionEntity)
   );
   const subscriptionService = new SubscriptionService(subscriptionRepository);
-  const app = createApp({ eventService, subscriptionService });
+  const deliveryInspectionService = new DeliveryInspectionService(
+    deliveryRepository,
+    deliveryAttemptRepository
+  );
+  const app = createApp({
+    eventService,
+    subscriptionService,
+    deliveryInspectionService,
+    securityConfig
+  });
 
   const server = app.listen(env.PORT, () => {
     console.log(`API server listening on port ${env.PORT}`);

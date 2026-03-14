@@ -30,9 +30,11 @@ export class ProviderFactory implements NotificationProviderFactory {
   }
 }
 
-export const createDefaultProviderFactory = (): NotificationProviderFactory =>
+export const createDefaultProviderFactory = (
+  webhookSigningSecret: string
+): NotificationProviderFactory =>
   new ProviderFactory([
     new EmailProvider(),
-    new WebhookProvider(),
+    new WebhookProvider({ signingSecret: webhookSigningSecret }),
     new SmsProvider()
   ]);

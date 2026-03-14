@@ -22,6 +22,7 @@ describe('Sprint 1 event ingestion flow', () => {
   it('accepts a valid event, stores it durably, and queues processing', async () => {
     const response = await request(context.app)
       .post('/events')
+      .set(context.authHeaders.producer)
       .send({
         event: 'order.created',
         userId: '123',
@@ -66,6 +67,7 @@ describe('Sprint 1 event ingestion flow', () => {
   it('rejects invalid event payloads', async () => {
     const response = await request(context.app)
       .post('/events')
+      .set(context.authHeaders.producer)
       .send({
         event: 123,
         data: 'invalid-payload'
@@ -88,6 +90,7 @@ describe('Sprint 1 event ingestion flow', () => {
   it('returns an event by identifier', async () => {
     const createResponse = await request(context.app)
       .post('/events')
+      .set(context.authHeaders.producer)
       .send({
         event: 'invoice.created',
         data: {
@@ -98,6 +101,7 @@ describe('Sprint 1 event ingestion flow', () => {
 
     const response = await request(context.app)
       .get(`/events/${createResponse.body.data.eventId}`)
+      .set(context.authHeaders.admin)
       .expect(200);
 
     expect(response.body).toEqual({
@@ -111,8 +115,15 @@ describe('Sprint 1 event ingestion flow', () => {
           }
         },
         processingStatus: 'queued',
+        correlationId: expect.any(String),
+        producerReference: 'authenticated-producer',
         acceptedAt: expect.any(String),
-        queuedAt: expect.any(String)
+        queuedAt: expect.any(String),
+        lastProcessedAt: null,
+        finalizedAt: null
+      },
+      meta: {
+        requestId: expect.any(String)
       }
     });
   });
@@ -120,6 +131,7 @@ describe('Sprint 1 event ingestion flow', () => {
   it('returns not found when the event does not exist', async () => {
     const response = await request(context.app)
       .get(`/events/${randomUUID()}`)
+      .set(context.authHeaders.admin)
       .expect(404);
 
     expect(response.body).toEqual({
@@ -134,6 +146,7 @@ describe('Sprint 1 event ingestion flow', () => {
   it('triggers event queueing after ingestion', async () => {
     const response = await request(context.app)
       .post('/events')
+      .set(context.authHeaders.producer)
       .send({
         event: 'payment.received',
         data: {

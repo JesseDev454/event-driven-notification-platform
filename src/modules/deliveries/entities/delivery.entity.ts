@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryColumn,
+  Unique,
   UpdateDateColumn
 } from 'typeorm';
 
@@ -14,6 +15,7 @@ import { SubscriptionEntity } from '../../subscriptions/entities/subscription.en
 import { DeliveryStatus, NotificationChannel } from '../../../types/notification';
 
 @Entity({ name: 'deliveries' })
+@Unique('uq_deliveries_event_subscription', ['eventId', 'subscriptionId'])
 export class DeliveryEntity {
   @PrimaryColumn('uuid')
   id!: string;
@@ -37,6 +39,24 @@ export class DeliveryEntity {
 
   @Column({ name: 'attempt_count', type: 'int', default: 0 })
   attemptCount!: number;
+
+  @Column({ name: 'retry_count', type: 'int', default: 0 })
+  retryCount!: number;
+
+  @Column({ name: 'max_retry_limit', type: 'int', default: 3 })
+  maxRetryLimit!: number;
+
+  @Column({ name: 'next_retry_at', type: 'timestamptz', nullable: true })
+  nextRetryAt!: Date | null;
+
+  @Column({ name: 'last_error_summary', type: 'varchar', length: 1024, nullable: true })
+  lastErrorSummary!: string | null;
+
+  @Column({ name: 'failure_category', type: 'varchar', length: 128, nullable: true })
+  failureCategory!: string | null;
+
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt!: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

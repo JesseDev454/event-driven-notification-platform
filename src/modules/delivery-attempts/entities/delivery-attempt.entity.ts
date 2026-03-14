@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryColumn,
+  Unique,
   UpdateDateColumn
 } from 'typeorm';
 
@@ -13,6 +14,7 @@ import { DeliveryAttemptOutcome, NotificationChannel } from '../../../types/noti
 import { DeliveryEntity } from '../../deliveries/entities/delivery.entity';
 
 @Entity({ name: 'delivery_attempts' })
+@Unique('uq_delivery_attempts_delivery_sequence', ['deliveryId', 'attemptSequence'])
 export class DeliveryAttemptEntity {
   @PrimaryColumn('uuid')
   id!: string;

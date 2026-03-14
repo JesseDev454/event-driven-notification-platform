@@ -15,6 +15,12 @@ export class ValidationError extends AppError {
   }
 }
 
+export class UnauthorizedError extends AppError {
+  constructor(message: string, code = 'unauthorized') {
+    super(message, 401, code);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message: string, code = 'not_found') {
     super(message, 404, code);

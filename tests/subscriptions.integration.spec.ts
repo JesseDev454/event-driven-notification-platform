@@ -20,6 +20,7 @@ describe('Sprint 2 subscription management', () => {
   it('creates a subscription', async () => {
     const response = await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.created',
         channel: 'webhook',
@@ -48,6 +49,7 @@ describe('Sprint 2 subscription management', () => {
   it('rejects invalid subscription targets', async () => {
     const response = await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.created',
         channel: 'email',
@@ -69,6 +71,7 @@ describe('Sprint 2 subscription management', () => {
   it('lists subscriptions with pagination', async () => {
     await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.created',
         channel: 'webhook',
@@ -78,6 +81,7 @@ describe('Sprint 2 subscription management', () => {
 
     await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.cancelled',
         channel: 'email',
@@ -87,6 +91,7 @@ describe('Sprint 2 subscription management', () => {
 
     const response = await request(context.app)
       .get('/subscriptions?page=1&limit=10')
+      .set(context.authHeaders.admin)
       .expect(200);
 
     expect(response.body.success).toBe(true);
@@ -102,6 +107,7 @@ describe('Sprint 2 subscription management', () => {
   it('returns a subscription by identifier', async () => {
     const createResponse = await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'invoice.created',
         channel: 'sms',
@@ -111,6 +117,7 @@ describe('Sprint 2 subscription management', () => {
 
     const response = await request(context.app)
       .get(`/subscriptions/${createResponse.body.data.subscriptionId}`)
+      .set(context.authHeaders.admin)
       .expect(200);
 
     expect(response.body).toEqual({
@@ -130,6 +137,7 @@ describe('Sprint 2 subscription management', () => {
   it('returns not found for a missing subscription', async () => {
     const response = await request(context.app)
       .get(`/subscriptions/${randomUUID()}`)
+      .set(context.authHeaders.admin)
       .expect(404);
 
     expect(response.body).toEqual({
@@ -144,6 +152,7 @@ describe('Sprint 2 subscription management', () => {
   it('updates subscription lifecycle state and target', async () => {
     const createResponse = await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.created',
         channel: 'webhook',
@@ -153,6 +162,7 @@ describe('Sprint 2 subscription management', () => {
 
     const response = await request(context.app)
       .patch(`/subscriptions/${createResponse.body.data.subscriptionId}`)
+      .set(context.authHeaders.admin)
       .send({
         status: 'inactive',
         target: 'https://example.com/updated'
@@ -176,6 +186,7 @@ describe('Sprint 2 subscription management', () => {
   it('rejects attempts to update immutable subscription fields', async () => {
     const createResponse = await request(context.app)
       .post('/subscriptions')
+      .set(context.authHeaders.admin)
       .send({
         eventType: 'order.created',
         channel: 'webhook',
@@ -185,6 +196,7 @@ describe('Sprint 2 subscription management', () => {
 
     const response = await request(context.app)
       .patch(`/subscriptions/${createResponse.body.data.subscriptionId}`)
+      .set(context.authHeaders.admin)
       .send({
         channel: 'email'
       })

@@ -1,6 +1,10 @@
 import { Repository } from 'typeorm';
 
 import {
+  finalizeCursorPagination,
+  resolveCursorPagination
+} from '../../../utils/pagination.util';
+import {
   EventEntity,
   EventProcessingStatus
 } from '../entities/event.entity';
@@ -13,6 +17,43 @@ export interface CreateAcceptedEventInput {
   payload: Record<string, unknown>;
   acceptedAt: Date;
 }
+
+export type EventListSort =
+  | 'acceptedAt:desc'
+  | 'acceptedAt:asc'
+  | 'lastProcessedAt:desc'
+  | 'lastProcessedAt:asc';
+
+export interface EventListFilters {
+  event?: string;
+  processingStatus?: EventProcessingStatus;
+  correlationId?: string;
+  producerReference?: string;
+  acceptedFrom?: Date;
+  acceptedTo?: Date;
+  limit: number;
+  cursor?: string;
+  sort: EventListSort;
+}
+
+export interface EventListPage {
+  items: EventEntity[];
+  nextCursor: string | null;
+}
+
+const EVENT_SORT_COLUMN_MAP: Record<EventListSort, keyof EventEntity> = {
+  'acceptedAt:desc': 'acceptedAt',
+  'acceptedAt:asc': 'acceptedAt',
+  'lastProcessedAt:desc': 'lastProcessedAt',
+  'lastProcessedAt:asc': 'lastProcessedAt'
+};
+
+const EVENT_SORT_DIRECTION_MAP: Record<EventListSort, 'ASC' | 'DESC'> = {
+  'acceptedAt:desc': 'DESC',
+  'acceptedAt:asc': 'ASC',
+  'lastProcessedAt:desc': 'DESC',
+  'lastProcessedAt:asc': 'ASC'
+};
 
 export class EventRepository {
   constructor(private readonly repository: Repository<EventEntity>) {}
@@ -49,6 +90,57 @@ export class EventRepository {
 
   async findById(eventId: string): Promise<EventEntity | null> {
     return this.repository.findOne({ where: { id: eventId } });
+  }
+
+  async list(filters: EventListFilters): Promise<EventListPage> {
+    const { offset, take } = resolveCursorPagination(filters);
+    const sortColumn = EVENT_SORT_COLUMN_MAP[filters.sort];
+    const sortDirection = EVENT_SORT_DIRECTION_MAP[filters.sort];
+    const query = this.repository.createQueryBuilder('event');
+
+    if (filters.event) {
+      query.andWhere('event.eventType = :eventType', { eventType: filters.event });
+    }
+
+    if (filters.processingStatus) {
+      query.andWhere('event.processingStatus = :processingStatus', {
+        processingStatus: filters.processingStatus
+      });
+    }
+
+    if (filters.correlationId) {
+      query.andWhere('event.correlationId = :correlationId', {
+        correlationId: filters.correlationId
+      });
+    }
+
+    if (filters.producerReference) {
+      query.andWhere('event.producerReference = :producerReference', {
+        producerReference: filters.producerReference
+      });
+    }
+
+    if (filters.acceptedFrom) {
+      query.andWhere('event.acceptedAt >= :acceptedFrom', {
+        acceptedFrom: filters.acceptedFrom
+      });
+    }
+
+    if (filters.acceptedTo) {
+      query.andWhere('event.acceptedAt <= :acceptedTo', {
+        acceptedTo: filters.acceptedTo
+      });
+    }
+
+    query
+      .orderBy(`event.${sortColumn}`, sortDirection)
+      .addOrderBy('event.id', sortDirection)
+      .skip(offset)
+      .take(take);
+
+    const items = await query.getMany();
+
+    return finalizeCursorPagination(items, filters.limit, offset);
   }
 
   async markProcessing(eventId: string, processedAt: Date): Promise<EventEntity> {

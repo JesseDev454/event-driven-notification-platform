@@ -2,8 +2,8 @@ import { Job, Worker } from 'bullmq';
 
 import {
   createDeliveryRetryQueue,
-  EVENT_PROCESSING_QUEUE_NAME,
-  EventProcessingJobPayload
+  DELIVERY_RETRY_QUEUE_NAME,
+  DeliveryRetryJobPayload
 } from '../config/bullmq';
 import { initializeDatabase } from '../config/database';
 import { loadEnv } from '../config/env';
@@ -18,12 +18,9 @@ import { DeliveryService } from '../modules/deliveries/services/delivery.service
 import { EventEntity } from '../modules/events/entities/event.entity';
 import { EventRepository } from '../modules/events/repositories/event.repository';
 import { EventService } from '../modules/events/services/event.service';
-import { SubscriptionEntity } from '../modules/subscriptions/entities/subscription.entity';
-import { SubscriptionRepository } from '../modules/subscriptions/repositories/subscription.repository';
-import { SubscriptionService } from '../modules/subscriptions/services/subscription.service';
 import {
-  NotificationProviderFactory,
-  createDefaultProviderFactory
+  createDefaultProviderFactory,
+  NotificationProviderFactory
 } from '../providers/provider.factory';
 import {
   buildEnqueueDeliveryRetry,
@@ -31,13 +28,12 @@ import {
 } from '../queues/producers/delivery-retry.producer';
 import {
   executeDeliveryAttempt,
-  isEligibleForInitialSend,
+  isEligibleForRetrySend,
   synchronizeEventStatus
 } from './delivery-execution';
 
-export interface EventProcessingWorkerDependencies {
+export interface DeliveryRetryWorkerDependencies {
   eventService: EventService;
-  subscriptionService: SubscriptionService;
   deliveryService: DeliveryService;
   deliveryAttemptRepository: DeliveryAttemptRepository;
   providerFactory: NotificationProviderFactory;
@@ -46,83 +42,60 @@ export interface EventProcessingWorkerDependencies {
   enqueueDeliveryRetry: EnqueueDeliveryRetry;
 }
 
-export interface EventProcessingResult {
+export interface DeliveryRetryResult {
+  deliveryId: string;
   eventId: string;
-  matchedSubscriptions: number;
-  createdDeliveries: number;
-  succeededDeliveries: number;
-  failedDeliveries: number;
+  attempted: boolean;
+  deliveryStatus: string;
   eventStatus: 'completed' | 'failed' | 'processing';
 }
 
-export const createEventProcessingJobHandler =
+export const createDeliveryRetryJobHandler =
   ({
     eventService,
-    subscriptionService,
     deliveryService,
     deliveryAttemptRepository,
     providerFactory,
     failureClassificationService,
     retryPolicyService,
     enqueueDeliveryRetry
-  }: EventProcessingWorkerDependencies) =>
+  }: DeliveryRetryWorkerDependencies) =>
   async (
-    job: Job<EventProcessingJobPayload> | EventProcessingJobPayload
-  ): Promise<EventProcessingResult> => {
+    job: Job<DeliveryRetryJobPayload> | DeliveryRetryJobPayload
+  ): Promise<DeliveryRetryResult> => {
     const payload = 'data' in job ? job.data : job;
-    const event = await eventService.getStoredEventById(payload.eventId);
-    const subscriptions = await subscriptionService.findActiveSubscriptionsByEventType(
-      event.eventType
-    );
+    const delivery = await deliveryService.getDeliveryById(payload.deliveryId);
 
-    if (subscriptions.length === 0) {
-      await eventService.markCompleted(event.id);
+    if (!delivery) {
+      throw new Error(`Delivery ${payload.deliveryId} not found for retry processing`);
+    }
+
+    const event = await eventService.getStoredEventById(delivery.eventId);
+
+    if (!isEligibleForRetrySend(delivery, payload.scheduledRetryCount)) {
+      const summary = await synchronizeEventStatus(
+        event.id,
+        eventService,
+        deliveryService
+      );
 
       return {
+        deliveryId: delivery.id,
         eventId: event.id,
-        matchedSubscriptions: 0,
-        createdDeliveries: 0,
-        succeededDeliveries: 0,
-        failedDeliveries: 0,
-        eventStatus: 'completed'
+        attempted: false,
+        deliveryStatus: delivery.status,
+        eventStatus: summary.eventStatus
       };
     }
 
-    await eventService.markProcessing(event.id);
-
-    let createdDeliveries = 0;
-
-    for (const subscription of subscriptions) {
-      const existingDelivery = await deliveryService.getDeliveryForEventAndSubscription(
-        event.id,
-        subscription.id
-      );
-      const delivery = existingDelivery
-        ? existingDelivery
-        : await deliveryService.getOrCreateDelivery(event.id, subscription);
-
-      if (!existingDelivery) {
-        createdDeliveries += 1;
-      }
-
-      const latestAttemptSequence = await deliveryAttemptRepository.getLatestAttemptSequence(
-        delivery.id
-      );
-
-      if (!isEligibleForInitialSend(delivery, latestAttemptSequence)) {
-        continue;
-      }
-
-      await executeDeliveryAttempt(delivery, event, {
-        deliveryService,
-        deliveryAttemptRepository,
-        providerFactory,
-        failureClassificationService,
-        retryPolicyService,
-        enqueueDeliveryRetry
-      });
-    }
-
+    const result = await executeDeliveryAttempt(delivery, event, {
+      deliveryService,
+      deliveryAttemptRepository,
+      providerFactory,
+      failureClassificationService,
+      retryPolicyService,
+      enqueueDeliveryRetry
+    });
     const summary = await synchronizeEventStatus(
       event.id,
       eventService,
@@ -130,23 +103,22 @@ export const createEventProcessingJobHandler =
     );
 
     return {
+      deliveryId: delivery.id,
       eventId: event.id,
-      matchedSubscriptions: subscriptions.length,
-      createdDeliveries,
-      succeededDeliveries: summary.succeededDeliveries,
-      failedDeliveries: summary.failedDeliveries,
+      attempted: true,
+      deliveryStatus: result.delivery.status,
       eventStatus: summary.eventStatus
     };
   };
 
-export const createEventProcessingWorker = (
-  dependencies: EventProcessingWorkerDependencies
-): Worker<EventProcessingJobPayload> => {
+export const createDeliveryRetryWorker = (
+  dependencies: DeliveryRetryWorkerDependencies
+): Worker<DeliveryRetryJobPayload> => {
   const redisOptions = createRedisOptions(loadEnv());
-  const handler = createEventProcessingJobHandler(dependencies);
+  const handler = createDeliveryRetryJobHandler(dependencies);
 
-  return new Worker<EventProcessingJobPayload>(
-    EVENT_PROCESSING_QUEUE_NAME,
+  return new Worker<DeliveryRetryJobPayload>(
+    DELIVERY_RETRY_QUEUE_NAME,
     async (job) => handler(job),
     {
       connection: redisOptions
@@ -154,15 +126,12 @@ export const createEventProcessingWorker = (
   );
 };
 
-const bootstrapEventProcessingWorker = async (): Promise<void> => {
+const bootstrapDeliveryRetryWorker = async (): Promise<void> => {
   const env = loadEnv();
   const dataSource = await initializeDatabase(env);
   const redisOptions = createRedisOptions(env);
   const retryQueue = createDeliveryRetryQueue(redisOptions);
   const eventRepository = new EventRepository(dataSource.getRepository(EventEntity));
-  const subscriptionRepository = new SubscriptionRepository(
-    dataSource.getRepository(SubscriptionEntity)
-  );
   const deliveryRepository = new DeliveryRepository(
     dataSource.getRepository(DeliveryEntity)
   );
@@ -174,9 +143,8 @@ const bootstrapEventProcessingWorker = async (): Promise<void> => {
     retryBaseDelayMs: env.RETRY_BASE_DELAY_MS
   });
 
-  const worker = createEventProcessingWorker({
+  const worker = createDeliveryRetryWorker({
     eventService: new EventService(eventRepository),
-    subscriptionService: new SubscriptionService(subscriptionRepository),
     deliveryService: new DeliveryService(
       deliveryRepository,
       retryPolicyService.getDefaultMaxRetryLimit()
@@ -190,7 +158,7 @@ const bootstrapEventProcessingWorker = async (): Promise<void> => {
     enqueueDeliveryRetry: buildEnqueueDeliveryRetry(retryQueue)
   });
 
-  console.log('Event processing worker listening for jobs');
+  console.log('Delivery retry worker listening for jobs');
 
   const shutdown = async (): Promise<void> => {
     await worker.close();
@@ -213,8 +181,8 @@ const bootstrapEventProcessingWorker = async (): Promise<void> => {
 };
 
 if (require.main === module) {
-  bootstrapEventProcessingWorker().catch((error: unknown) => {
-    console.error('Failed to start event processing worker', error);
+  bootstrapDeliveryRetryWorker().catch((error: unknown) => {
+    console.error('Failed to start delivery retry worker', error);
     process.exit(1);
   });
 }

@@ -2,9 +2,10 @@ import { EmailProvider } from '../../src/providers/email/email.provider';
 import { ProviderFactory } from '../../src/providers/provider.factory';
 import { SmsProvider } from '../../src/providers/sms/sms.provider';
 import { WebhookProvider } from '../../src/providers/webhook/webhook.provider';
+import { signWebhookPayload } from '../../src/providers/webhook/webhook-signing.util';
 import { NotificationChannel } from '../../src/types/notification';
 
-describe('Sprint 3 notification providers', () => {
+describe('Sprint 6 notification providers', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -61,11 +62,29 @@ describe('Sprint 3 notification providers', () => {
     });
   });
 
-  it('posts webhook payloads and returns normalized success', async () => {
+  it('posts signed webhook payloads with event and correlation headers', async () => {
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(null, { status: 202, statusText: 'Accepted' }));
-    const provider = new WebhookProvider();
+    const provider = new WebhookProvider({
+      signingSecret: 'test-signing-secret',
+      now: () => new Date('2026-03-14T10:00:00.000Z')
+    });
+    const expectedBody = JSON.stringify({
+      eventId: 'evt-3',
+      eventType: 'order.created',
+      correlationId: 'corr-3',
+      data: {
+        data: {
+          orderId: 'ORD-3'
+        }
+      }
+    });
+    const expectedSignature = signWebhookPayload({
+      payload: expectedBody,
+      secret: 'test-signing-secret',
+      timestamp: '1773482400'
+    });
 
     const result = await provider.send({
       deliveryId: 'del-3',
@@ -88,18 +107,12 @@ describe('Sprint 3 notification providers', () => {
         headers: expect.objectContaining({
           'content-type': 'application/json',
           'x-correlation-id': 'corr-3',
-          'x-event-type': 'order.created'
+          'x-event-id': 'evt-3',
+          'x-event-type': 'order.created',
+          'x-timestamp': '1773482400',
+          'x-signature': expectedSignature
         }),
-        body: JSON.stringify({
-          eventId: 'evt-3',
-          eventType: 'order.created',
-          correlationId: 'corr-3',
-          data: {
-            data: {
-              orderId: 'ORD-3'
-            }
-          }
-        })
+        body: expectedBody
       })
     );
     expect(result).toEqual({
@@ -111,6 +124,32 @@ describe('Sprint 3 notification providers', () => {
     });
   });
 
+  it('webhook signing output is deterministic for the same payload, secret, and timestamp', () => {
+    const payload = JSON.stringify({
+      eventId: 'evt-deterministic',
+      eventType: 'order.created',
+      correlationId: 'corr-deterministic',
+      data: {
+        data: {
+          orderId: 'ORD-DET'
+        }
+      }
+    });
+
+    const firstSignature = signWebhookPayload({
+      payload,
+      secret: 'same-secret',
+      timestamp: '1773482400'
+    });
+    const secondSignature = signWebhookPayload({
+      payload,
+      secret: 'same-secret',
+      timestamp: '1773482400'
+    });
+
+    expect(firstSignature).toBe(secondSignature);
+  });
+
   it('returns normalized webhook failure details', async () => {
     jest
       .spyOn(global, 'fetch')
@@ -120,7 +159,10 @@ describe('Sprint 3 notification providers', () => {
           statusText: 'Internal Server Error'
         })
       );
-    const provider = new WebhookProvider();
+    const provider = new WebhookProvider({
+      signingSecret: 'test-signing-secret',
+      now: () => new Date('2026-03-14T10:00:00.000Z')
+    });
 
     const result = await provider.send({
       deliveryId: 'del-4',
@@ -147,7 +189,9 @@ describe('Sprint 3 notification providers', () => {
 
   it('selects the correct provider for each channel', () => {
     const emailProvider = new EmailProvider();
-    const webhookProvider = new WebhookProvider();
+    const webhookProvider = new WebhookProvider({
+      signingSecret: 'test-signing-secret'
+    });
     const smsProvider = new SmsProvider();
     const factory = new ProviderFactory([
       emailProvider,

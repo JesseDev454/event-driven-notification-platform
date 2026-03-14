@@ -4,26 +4,48 @@ import {
   NotificationSendInput
 } from '../interfaces/notification-provider.interface';
 import { NotificationChannel } from '../../types/notification';
+import { signWebhookPayload } from './webhook-signing.util';
+
+export interface WebhookProviderOptions {
+  signingSecret: string;
+  now?: () => Date;
+}
 
 export class WebhookProvider implements NotificationProvider {
   readonly channel = NotificationChannel.WEBHOOK;
   readonly providerName = 'webhook-http-provider';
 
+  private readonly now: () => Date;
+
+  constructor(private readonly options: WebhookProviderOptions) {
+    this.now = options.now ?? (() => new Date());
+  }
+
   async send(input: NotificationSendInput): Promise<NotificationProviderResult> {
     try {
+      const payload = JSON.stringify({
+        eventId: input.eventId,
+        eventType: input.eventType,
+        correlationId: input.correlationId ?? null,
+        data: input.payload
+      });
+      const timestamp = Math.floor(this.now().getTime() / 1000).toString();
+      const signature = signWebhookPayload({
+        payload,
+        secret: this.options.signingSecret,
+        timestamp
+      });
       const response = await fetch(input.target, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(input.correlationId ? { 'x-correlation-id': input.correlationId } : {}),
-          'x-event-type': input.eventType
+          'x-event-type': input.eventType,
+          'x-event-id': input.eventId,
+          'x-timestamp': timestamp,
+          'x-signature': signature
         },
-        body: JSON.stringify({
-          eventId: input.eventId,
-          eventType: input.eventType,
-          correlationId: input.correlationId ?? null,
-          data: input.payload
-        })
+        body: payload
       });
 
       const responseSummary = this.buildResponseSummary(response);
