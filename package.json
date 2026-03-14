@@ -1,0 +1,35 @@
+{
+  "name": "event-driven-notification-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sprint 1 foundation for the Event-Driven Notification Platform.",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "test": "jest --runInBand"
+  },
+  "dependencies": {
+    "bullmq": "^5.58.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.20",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.3",
+    "jest": "^29.7.0",
+    "pg-mem": "^3.0.5",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
