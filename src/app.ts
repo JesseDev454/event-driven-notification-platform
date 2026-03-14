@@ -4,12 +4,18 @@ import { errorHandlerMiddleware } from './middleware/error-handler.middleware';
 import { requestIdMiddleware } from './middleware/request-id.middleware';
 import { EventService } from './modules/events/services/event.service';
 import { createEventRouter } from './modules/events/routes/event.routes';
+import { SubscriptionService } from './modules/subscriptions/services/subscription.service';
+import { createSubscriptionRouter } from './modules/subscriptions/routes/subscription.routes';
 
 export interface AppDependencies {
   eventService: EventService;
+  subscriptionService: SubscriptionService;
 }
 
-export const createApp = ({ eventService }: AppDependencies): Express => {
+export const createApp = ({
+  eventService,
+  subscriptionService
+}: AppDependencies): Express => {
   const app = express();
 
   app.disable('x-powered-by');
@@ -21,6 +27,7 @@ export const createApp = ({ eventService }: AppDependencies): Express => {
   });
 
   app.use('/events', createEventRouter(eventService));
+  app.use('/subscriptions', createSubscriptionRouter(subscriptionService));
   app.use(errorHandlerMiddleware);
 
   return app;

@@ -6,6 +6,9 @@ import { createRedisConnection, createRedisOptions } from './config/redis';
 import { EventEntity } from './modules/events/entities/event.entity';
 import { EventRepository } from './modules/events/repositories/event.repository';
 import { EventService } from './modules/events/services/event.service';
+import { SubscriptionEntity } from './modules/subscriptions/entities/subscription.entity';
+import { SubscriptionRepository } from './modules/subscriptions/repositories/subscription.repository';
+import { SubscriptionService } from './modules/subscriptions/services/subscription.service';
 
 const bootstrap = async (): Promise<void> => {
   const env = loadEnv();
@@ -21,7 +24,11 @@ const bootstrap = async (): Promise<void> => {
     dataSource.getRepository(EventEntity)
   );
   const eventService = new EventService(eventRepository);
-  const app = createApp({ eventService });
+  const subscriptionRepository = new SubscriptionRepository(
+    dataSource.getRepository(SubscriptionEntity)
+  );
+  const subscriptionService = new SubscriptionService(subscriptionRepository);
+  const app = createApp({ eventService, subscriptionService });
 
   const server = app.listen(env.PORT, () => {
     console.log(`API server listening on port ${env.PORT}`);

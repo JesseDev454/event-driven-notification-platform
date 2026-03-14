@@ -6,6 +6,7 @@ import {
   enqueueEventProcessing as defaultEnqueueEventProcessing
 } from '../../../queues/producers/event-processing.producer';
 import { CreateEventDto } from '../dto/create-event.dto';
+import { EventEntity } from '../entities/event.entity';
 import { EventRepository } from '../repositories/event.repository';
 
 export interface CreatedEventResult {
@@ -66,6 +67,28 @@ export class EventService {
       acceptedAt: event.acceptedAt,
       queuedAt: event.queuedAt
     };
+  }
+
+  async getStoredEventById(eventId: string): Promise<EventEntity> {
+    const event = await this.eventRepository.findById(eventId);
+
+    if (!event) {
+      throw new NotFoundError('Event not found', 'event_not_found');
+    }
+
+    return event;
+  }
+
+  async markProcessing(eventId: string): Promise<void> {
+    await this.eventRepository.markProcessing(eventId, new Date());
+  }
+
+  async markCompleted(eventId: string): Promise<void> {
+    await this.eventRepository.markCompleted(eventId, new Date());
+  }
+
+  async markFailed(eventId: string): Promise<void> {
+    await this.eventRepository.markFailed(eventId, new Date());
   }
 
   private buildPayload(input: CreateEventDto): Record<string, unknown> {

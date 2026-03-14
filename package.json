@@ -2,12 +2,13 @@
   "name": "event-driven-notification-platform",
   "version": "1.0.0",
   "private": true,
-  "description": "Sprint 1 foundation for the Event-Driven Notification Platform.",
+  "description": "Backend implementation for the Event-Driven Notification Platform.",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
+    "worker": "tsx src/workers/event-processing.worker.ts",
     "test": "jest --runInBand"
   },
   "dependencies": {
