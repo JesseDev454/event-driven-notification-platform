@@ -74,7 +74,7 @@ Its responsibility in the data model is to serve as the authoritative source for
 
 The `Delivery` entity represents a single notification intent created from the combination of an accepted event and a matched subscription.
 
-It exists because the platform needs a durable unit of current delivery state that is separate from both the original event and the detailed attempt history. This enables the system to track whether a notification is pending, retrying, succeeded, or terminally failed without losing the fine-grained history of how it reached that state.
+It exists because the platform needs a durable unit of current delivery state that is separate from both the original event and the detailed attempt history. This enables the system to track whether a notification is pending, processing, retrying, succeeded, or failed without losing the fine-grained history of how it reached that state.
 
 Its responsibility in the data model is to serve as the authoritative source for:
 
@@ -96,7 +96,7 @@ Its responsibility in the data model is to serve as the authoritative source for
 - which provider was used
 - whether the attempt succeeded or failed
 - what failure or response information was observed
-- whether the attempt was considered retryable
+- what failure classification was observed
 
 ## 5. Key Attributes by Entity
 
@@ -109,9 +109,9 @@ The following attributes are logical fields, not implementation-specific column 
 | `event_id` | Stable identifier for the accepted event record. |
 | `event_type` | Named event classification, such as `order.created`. |
 | `producer_reference` | Identifies the client application or producer context that submitted the event. |
-| `correlation_id` | Shared tracing reference used across event, delivery, and attempt records. |
+| `correlation_id` | Shared tracing reference used to link related operational views across the event lifecycle. |
 | `payload` | Canonical accepted event data and business context. |
-| `processing_status` | High-level event state, such as accepted, queued, processing, processed, or completed with failures. |
+| `processing_status` | High-level event state, such as accepted, queued, processing, completed, or failed. |
 | `accepted_at` | Timestamp representing durable event acceptance. |
 | `queued_at` | Timestamp indicating asynchronous processing was scheduled. |
 | `last_processed_at` | Timestamp of the most recent processing progression for the event. |
@@ -126,11 +126,8 @@ The following attributes are logical fields, not implementation-specific column 
 | `channel` | Notification channel, such as email, webhook, or mocked SMS. |
 | `target_destination` | Destination information appropriate for the channel, such as email address or webhook URL. |
 | `subscription_status` | Indicates whether the subscription is active or inactive for future matching. |
-| `delivery_settings` | Channel-specific or routing-specific settings that influence future delivery behavior. |
 | `created_at` | Timestamp indicating when the subscription was created. |
 | `updated_at` | Timestamp indicating the most recent configuration change. |
-| `deactivated_at` | Timestamp indicating when the subscription became inactive, if applicable. |
-| `managed_reference` | Optional administrative or ownership reference for operational use. |
 
 ### Delivery
 
@@ -139,20 +136,18 @@ The following attributes are logical fields, not implementation-specific column 
 | `delivery_id` | Stable identifier for the delivery. |
 | `event_id` | Reference to the accepted event that triggered the delivery. |
 | `subscription_id` | Reference to the subscription that matched the event. |
-| `correlation_id` | Tracing reference carried across event and attempt history. |
+| `attempt_count` | Current number of real send attempts already performed for this delivery. |
 | `channel_snapshot` | Delivery-time copy of the channel used for this notification. |
 | `destination_snapshot` | Delivery-time copy of the target destination used for this notification. |
-| `provider_reference` | Identifies the provider or adapter selected for the delivery path. |
-| `delivery_status` | Current delivery state, such as pending, retrying, succeeded, or terminally failed. |
+| `delivery_status` | Current delivery state, such as pending, processing, retrying, succeeded, or failed. |
 | `retry_count` | Current number of attempts already consumed for this delivery. |
 | `max_retry_limit` | Logical retry cap applied to the delivery. |
 | `next_retry_at` | Scheduled future retry time if the delivery is retrying. |
-| `last_attempt_at` | Timestamp of the most recent attempt. |
-| `final_outcome_code` | High-level summary of how the delivery ended or currently stands. |
 | `last_error_summary` | Latest relevant failure summary for operational visibility. |
+| `failure_category` | Latest failure classification relevant to the delivery's current state, if applicable. |
 | `created_at` | Timestamp indicating when the delivery record was created. |
 | `updated_at` | Timestamp indicating the most recent status change. |
-| `completed_at` | Timestamp indicating final success or terminal failure, if reached. |
+| `completed_at` | Timestamp indicating final success or failure, if reached. |
 
 ### Delivery Attempt
 
@@ -161,15 +156,15 @@ The following attributes are logical fields, not implementation-specific column 
 | `delivery_attempt_id` | Stable identifier for the delivery attempt. |
 | `delivery_id` | Reference to the delivery being attempted. |
 | `attempt_sequence` | Ordered sequence number of the attempt within the delivery lifecycle. |
-| `correlation_id` | Tracing reference linking the attempt back to the broader lifecycle. |
-| `provider_reference` | Identifies which provider or adapter handled the attempt. |
-| `attempt_outcome` | Result of the specific attempt, such as success, transient failure, or terminal failure. |
-| `retryable_flag` | Indicates whether the attempt outcome was considered retryable. |
+| `channel` | Delivery channel used for the attempt. |
+| `provider_name` | Identifies which provider or adapter handled the attempt. |
+| `attempt_outcome` | Result of the specific attempt, represented as success or failure. |
 | `failure_category` | Broad classification of failure, such as network, provider rejection, or invalid destination. |
 | `error_detail` | Human-readable or normalized error context for troubleshooting. |
 | `provider_response_summary` | Non-sensitive summary of provider or subscriber response context. |
 | `attempted_at` | Timestamp indicating when the attempt was executed. |
-| `completed_at` | Timestamp indicating when the attempt outcome was determined. |
+| `created_at` | Timestamp indicating when the attempt record was created. |
+| `updated_at` | Timestamp indicating the most recent write to the attempt record. |
 
 ## 6. Entity Relationships
 
@@ -217,7 +212,6 @@ erDiagram
         string channel
         string target_destination
         string subscription_status
-        json delivery_settings
         datetime created_at
         datetime updated_at
     }
@@ -226,7 +220,7 @@ erDiagram
         string delivery_id PK
         string event_id FK
         string subscription_id FK
-        string correlation_id
+        integer attempt_count
         string channel_snapshot
         string destination_snapshot
         string delivery_status
@@ -239,9 +233,9 @@ erDiagram
         string delivery_attempt_id PK
         string delivery_id FK
         integer attempt_sequence
-        string provider_reference
+        string channel
+        string provider_name
         string attempt_outcome
-        boolean retryable_flag
         string failure_category
         datetime attempted_at
     }
@@ -262,9 +256,8 @@ Once accepted, an event may move through a lifecycle such as:
 - accepted
 - queued
 - processing
-- processed
-- completed with all deliveries resolved
-- completed with partial or terminal delivery failures
+- completed
+- failed
 
 The event lifecycle is intentionally high-level. It provides operational summary state, while detailed delivery results live below the event level.
 
@@ -273,10 +266,10 @@ The event lifecycle is intentionally high-level. It provides operational summary
 The `Delivery` entity should represent the current state of a single notification intent. A typical lifecycle may include:
 
 - pending
-- in progress
+- processing
 - retrying
 - succeeded
-- terminally failed
+- failed
 
 This lifecycle must be able to distinguish between work that has never been attempted, work that is still eligible for retry, and work that has reached a final outcome.
 
@@ -287,7 +280,7 @@ This lifecycle must be able to distinguish between work that has never been atte
 This history is important because:
 
 - a successful delivery may only succeed after one or more prior failures
-- a terminally failed delivery must show how many attempts occurred and what went wrong
+- a failed delivery must show how many attempts occurred and what went wrong
 - administrators need to understand not only the current state but the path taken to reach it
 
 ### Active vs Inactive Subscriptions
@@ -305,7 +298,7 @@ This means the model must allow:
 Retry behavior affects both `Delivery` and `Delivery Attempt`:
 
 - `Delivery` stores the current retry posture, including how many attempts have been consumed and whether another retry is scheduled
-- `Delivery Attempt` stores the historical outcome of each attempt and whether that specific attempt was classified as retryable
+- `Delivery Attempt` stores the historical outcome and failure classification of each attempt
 
 This separation allows the platform to answer both:
 
@@ -324,7 +317,7 @@ The logical model should enforce the following rules:
 6. Final delivery outcomes must remain queryable even after background processing has completed.
 7. `Delivery` records should preserve delivery-time channel and destination context so later subscription edits do not distort history.
 8. Attempt history should be append-oriented; later attempts should not overwrite earlier attempt records.
-9. State transitions should remain logically valid. For example, a terminally failed delivery should not silently return to a pending state without an explicit recovery action.
+9. State transitions should remain logically valid. For example, a failed delivery should not silently return to a pending state without an explicit recovery action.
 10. Correlation or tracing references should remain consistent across related event, delivery, and attempt records where such references are present.
 
 ### Possible Uniqueness Rules
@@ -350,7 +343,7 @@ The schema should support the following query patterns efficiently at a conceptu
 | Retrieve `Delivery` records for a given `Event` | Supports fanout inspection and event-to-delivery traceability. |
 | Retrieve `Delivery` records for a given `Subscription` | Supports subscription impact review and operational troubleshooting. |
 | Retrieve `Delivery Attempt` history for a given `Delivery` in chronological order | Supports retry analysis and provider troubleshooting. |
-| Retrieve deliveries by current status, especially retrying or terminally failed | Supports operational review and future recovery tooling. |
+| Retrieve deliveries by current status, especially retrying or failed | Supports operational review and future recovery tooling. |
 | Retrieve deliveries eligible for future retry based on retry state and scheduling information | Supports worker and queue coordination without treating the queue as the system of record. |
 | Retrieve records by time range | Supports audit, monitoring, and operational review. |
 | Trace a correlation reference across `Event`, `Delivery`, and `Delivery Attempt` | Supports end-to-end debugging and auditability. |
@@ -364,7 +357,7 @@ The platform requires both current-state data and historical data because those 
 The `Delivery` entity answers questions such as:
 
 - What is the current state of this notification?
-- Is it pending, retrying, succeeded, or terminally failed?
+- Is it pending, processing, retrying, succeeded, or failed?
 - What is the latest known failure context?
 
 The `Delivery Attempt` entity answers questions such as:
@@ -399,4 +392,3 @@ The current logical model is intentionally focused on the platform's first durab
 - **Retention and archival strategy:** Historical attempt and delivery records may eventually need formal retention, archival, or summarization policies.
 - **Provider-level metadata expansion:** Additional provider identifiers, response classifications, or reconciliation references may become useful as real integrations deepen.
 - **Administrative ownership modeling:** Later phases may introduce clearer representations of who created, approved, or manages subscriptions.
-

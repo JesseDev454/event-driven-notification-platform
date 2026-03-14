@@ -214,13 +214,13 @@ so that activity can be linked across ingestion, processing, and delivery histor
 **US-RF-2**
 
 - A non-retryable failure is recorded as final without unnecessary repeated attempts.
-- A retryable failure becomes terminally failed once the allowed retry limit has been exhausted.
+- A retryable failure becomes failed once the allowed retry limit has been exhausted.
 - Final failure states remain visible for later operational review.
 
 **US-RF-3**
 
-- The platform exposes delivery states that distinguish at least pending, retrying, succeeded, and terminally failed outcomes.
-- A retrying delivery remains visibly non-final until it either succeeds or becomes terminally failed.
+- The platform exposes delivery states that distinguish at least pending, retrying, succeeded, and failed outcomes.
+- A retrying delivery remains visibly non-final until it either succeeds or becomes failed.
 - A platform administrator can identify the current lifecycle state of a delivery from stored platform records.
 
 ### EP-05 Delivery Monitoring
@@ -240,7 +240,7 @@ so that activity can be linked across ingestion, processing, and delivery histor
 **US-DM-3**
 
 - Final outcomes remain queryable after processing completes or retry limits are exhausted.
-- Final outcomes distinguish between successful and terminally failed delivery results.
+- Final outcomes distinguish between successful and failed delivery results.
 - Stored outcome records are sufficient to support audit-oriented review and operational follow-up.
 
 ### EP-06 Security and Trust
@@ -284,7 +284,7 @@ so that activity can be linked across ingestion, processing, and delivery histor
 17. **FR-17** The system shall sign outbound webhook deliveries so subscriber systems can verify authenticity and integrity.
 18. **FR-18** The system shall preserve traceable references that connect accepted events, delivery records, and delivery attempts.
 19. **FR-19** The system shall provide platform administrators with the ability to inspect subscription configuration and delivery history through planned administrative surfaces.
-20. **FR-20** The system shall maintain observable delivery states that distinguish at least pending, retrying, succeeded, and terminally failed outcomes.
+20. **FR-20** The system shall maintain observable delivery states that distinguish at least pending, retrying, succeeded, and failed outcomes.
 
 ## 7. Non-Functional Requirements
 

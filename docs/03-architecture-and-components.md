@@ -205,7 +205,7 @@ It should not include:
 
 1. When a delivery fails, the Worker Process classifies the failure outcome according to retry policy rules.
 2. If the failure is retryable and retry allowance remains, the system schedules a later attempt through the queue mechanism.
-3. If the failure is non-retryable or retry allowance is exhausted, the delivery is marked as terminally failed.
+3. If the failure is non-retryable or retry allowance is exhausted, the delivery is marked as failed.
 4. Every retry decision is reflected in durable delivery history rather than only in transient queue state.
 
 ### Monitoring and Logging Flow
@@ -292,7 +292,7 @@ The delivery-processing design centers on the Worker Process as the execution ru
 
 6. **Update delivery status**
    - The worker updates the delivery state based on the provider outcome and retry policy.
-   - Delivery state should reflect whether the notification is pending, retrying, succeeded, or terminally failed.
+   - Delivery state should reflect whether the notification is pending, retrying, succeeded, or failed.
 
 7. **Schedule retries**
    - If the failure is retryable and retry capacity remains, the worker schedules additional processing through the queue.
@@ -364,7 +364,7 @@ Notification delivery should be isolated behind provider abstractions that prese
 ### Retry Awareness
 
 - Retry behavior should be treated as a first-class architectural concern rather than an incidental transport detail.
-- The architecture must preserve a clear difference between transient failure, retrying state, and a terminally failed state.
+- The architecture must preserve a clear difference between transient failure, retrying state, and a final failed state.
 - Retry scheduling must remain bounded and visible in durable system history.
 
 ### Auditability

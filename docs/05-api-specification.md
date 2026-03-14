@@ -39,13 +39,13 @@ The exact authentication and authorization mechanism will be finalized later, bu
 
 - `POST /events` is intended for trusted producer systems.
 - Producers must be authenticated before the platform accepts an event.
-- Producer identity may be derived from service credentials, internal identity, API keys, or another controlled mechanism chosen later.
-- Authentication context is treated as part of event acceptance, not as optional metadata.
+- The current implementation uses a dedicated producer API key header for local and development use.
+- Producer identity is treated as authenticated context rather than optional request-body metadata.
 
 ### Administrative and Internal Access Assumptions
 
 - Event inspection, subscription management, and delivery-monitoring endpoints are intended for platform administrators or internal systems with operational scope.
-- Administrative endpoints require stronger or broader authorization than producer ingestion.
+- Administrative endpoints use a separate admin/internal API key from producer ingestion.
 - Read-only inspection access and configuration-changing access may later be separated into distinct roles.
 
 ### Contract Note
@@ -91,8 +91,6 @@ The exact authentication and authorization mechanism will be finalized later, bu
 | `data` | Yes | Event-specific business payload as a JSON object. |
 | `userId` | No | Business identifier associated with the event when relevant to the producing domain. |
 | `correlationId` | No | Caller-supplied tracing identifier used to link related operations. |
-| `occurredAt` | No | Timestamp representing when the event occurred in the producer domain. |
-| `metadata` | No | Additional non-authoritative event metadata relevant to routing, diagnostics, or future review. |
 
 **Required field expectations**
 
@@ -103,8 +101,6 @@ The exact authentication and authorization mechanism will be finalized later, bu
 
 - `userId`, when present, must be a non-empty string.
 - `correlationId`, when present, must be a non-empty string.
-- `occurredAt`, when present, must be a valid timestamp.
-- `metadata`, when present, must be a JSON object.
 
 **Response behavior**
 
@@ -121,12 +117,7 @@ The exact authentication and authorization mechanism will be finalized later, bu
 | Field | Description |
 | --- | --- |
 | `data.eventId` | Platform-generated identifier for the accepted event. |
-| `data.event` | Accepted event type. |
-| `data.processingStatus` | Initial high-level processing state, such as `accepted` or `queued`. |
-| `data.correlationId` | Effective correlation reference for the event lifecycle. |
-| `data.acceptedAt` | Timestamp at which durable acceptance occurred. |
-| `data.links.self` | Canonical inspection link for the event resource. |
-| `meta.requestId` | Request-scoped diagnostic identifier. |
+| `data.status` | Immediate high-level status returned after queuing, currently `queued`. |
 
 **Status codes**
 
@@ -145,7 +136,6 @@ The exact authentication and authorization mechanism will be finalized later, bu
 - The API must validate top-level contract fields before accepting the event.
 - The `data` field is intentionally flexible, but it must remain a JSON object.
 - Unknown top-level fields should be rejected to keep the public contract explicit.
-- The platform may validate event naming rules and basic timestamp sanity at the boundary.
 
 **Example request**
 
@@ -157,13 +147,9 @@ Content-Type: application/json
   "event": "order.created",
   "userId": "123",
   "correlationId": "corr-order-555",
-  "occurredAt": "2026-03-13T10:15:00Z",
   "data": {
     "orderId": "ORD-555",
     "amount": 250
-  },
-  "metadata": {
-    "source": "orders-service"
   }
 }
 ```
@@ -172,18 +158,10 @@ Content-Type: application/json
 
 ```json
 {
+  "success": true,
   "data": {
     "eventId": "evt_01HXYZ123",
-    "event": "order.created",
-    "processingStatus": "accepted",
-    "correlationId": "corr-order-555",
-    "acceptedAt": "2026-03-13T10:15:01Z",
-    "links": {
-      "self": "/events/evt_01HXYZ123"
-    }
-  },
-  "meta": {
-    "requestId": "req_01HXYZ999"
+    "status": "queued"
   }
 }
 ```
@@ -235,14 +213,15 @@ Content-Type: application/json
 | Field | Description |
 | --- | --- |
 | `data.eventId` | Event identifier. |
-| `data.event` | Event type. |
+| `data.eventType` | Event type. |
 | `data.processingStatus` | High-level processing summary. |
 | `data.correlationId` | Correlation reference. |
+| `data.producerReference` | Authenticated producer or source reference, if available. |
 | `data.payload` | Accepted event payload. |
 | `data.acceptedAt` | Durable acceptance timestamp. |
 | `data.queuedAt` | Timestamp when asynchronous processing was scheduled, if available. |
 | `data.lastProcessedAt` | Most recent processing progression timestamp, if available. |
-| `data.links.deliveries` | Link to deliveries derived from the event. |
+| `data.finalizedAt` | Timestamp when the event reached a terminal summary state, if available. |
 
 **Status codes**
 
@@ -260,7 +239,7 @@ Content-Type: application/json
 
 - Subscriptions are durable administrative configuration.
 - The initial contract favors deactivation over hard deletion.
-- `event` and `channel` are treated as creation-time contract fields and are not mutable through the initial update contract.
+- `eventType` and `channel` are treated as creation-time contract fields and are not mutable through the initial update contract.
 
 ### `POST /subscriptions`
 
@@ -272,12 +251,9 @@ Content-Type: application/json
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `event` | Yes | Event type the subscription listens for. |
+| `eventType` | Yes | Event type the subscription listens for. |
 | `channel` | Yes | Delivery channel, such as `email`, `webhook`, or `sms`. |
 | `target` | Yes | Channel-specific destination information. |
-| `status` | No | Initial subscription state; defaults to `active`. |
-| `deliverySettings` | No | Optional channel-specific settings or routing options. |
-| `managedReference` | No | Optional administrative label or ownership reference. |
 
 **Target expectations by channel**
 
@@ -287,15 +263,14 @@ Content-Type: application/json
 
 **Response structure**
 
-- Returns the created subscription resource.
-- The response includes identifier, event type, channel, status, target summary, delivery settings, and timestamps.
+- Returns the created subscription resource summary.
+- The response includes the subscription identifier and initial lifecycle status.
 
 **Validation considerations**
 
-- `event` must satisfy event-naming rules.
+- `eventType` must satisfy event-naming rules.
 - `channel` must be one of the supported platform channels.
 - `target` must contain the required destination form for the selected channel.
-- `status`, if supplied, must be a valid subscription lifecycle value.
 
 **Status codes**
 
@@ -319,13 +294,11 @@ Content-Type: application/json
 
 | Parameter | Description |
 | --- | --- |
-| `event` | Filter by event type. |
+| `page` | Page number for list traversal. |
+| `eventType` | Filter by event type. |
 | `channel` | Filter by delivery channel. |
 | `status` | Filter by active or inactive state. |
-| `managedReference` | Filter by administrative ownership or label. |
 | `limit` | Page size limit. |
-| `cursor` | Opaque cursor for paginated traversal. |
-| `sort` | Sort expression, typically by creation or update time. |
 
 **Response structure**
 
@@ -353,15 +326,12 @@ Content-Type: application/json
 | Field | Description |
 | --- | --- |
 | `data.subscriptionId` | Subscription identifier. |
-| `data.event` | Event type the subscription matches. |
+| `data.eventType` | Event type the subscription matches. |
 | `data.channel` | Delivery channel. |
-| `data.target` | Channel-appropriate destination object or safe administrative representation of it. |
+| `data.target` | Channel-appropriate destination string. |
 | `data.status` | Current subscription lifecycle state. |
-| `data.deliverySettings` | Current optional delivery settings. |
-| `data.managedReference` | Administrative label or ownership reference, if present. |
 | `data.createdAt` | Creation timestamp. |
 | `data.updatedAt` | Most recent update timestamp. |
-| `data.deactivatedAt` | Deactivation timestamp, if inactive. |
 
 **Status codes**
 
@@ -385,9 +355,7 @@ Content-Type: application/json
 | --- | --- | --- |
 | `status` | Yes | Supports transitions such as `active` to `inactive` and `inactive` to `active`. |
 | `target` | Yes | Allows destination changes for future deliveries. |
-| `deliverySettings` | Yes | Allows revision of channel-specific or routing-specific settings. |
-| `managedReference` | Yes | Allows operational ownership or labeling updates. |
-| `event` | No | Create a new subscription if event type must change. |
+| `eventType` | No | Create a new subscription if event type must change. |
 | `channel` | No | Create a new subscription if channel must change. |
 
 **Response structure**
@@ -433,7 +401,7 @@ Content-Type: application/json
 | --- | --- |
 | `eventId` | Filter by originating event. |
 | `subscriptionId` | Filter by originating subscription. |
-| `status` | Filter by delivery state, such as `pending`, `retrying`, `succeeded`, or `terminally_failed`. |
+| `status` | Filter by delivery state, such as `pending`, `processing`, `retrying`, `succeeded`, or `failed`. |
 | `channel` | Filter by delivery channel. |
 | `correlationId` | Filter by correlation reference. |
 | `createdFrom` | Lower bound for delivery creation time. |
@@ -473,13 +441,13 @@ Content-Type: application/json
 | `data.eventId` | Originating event identifier. |
 | `data.subscriptionId` | Originating subscription identifier. |
 | `data.channel` | Delivery channel used at the time of creation. |
-| `data.destination` | Delivery-time destination or safe administrative representation of it. |
+| `data.target` | Delivery-time destination or safe administrative representation of it. |
 | `data.status` | Current delivery state. |
 | `data.retryCount` | Number of attempts already consumed. |
 | `data.maxRetryLimit` | Configured retry cap for the delivery. |
 | `data.nextRetryAt` | Scheduled retry time, if applicable. |
-| `data.finalOutcomeCode` | High-level final or current outcome summary. |
 | `data.lastErrorSummary` | Latest failure summary, if applicable. |
+| `data.failureCategory` | Latest delivery failure classification, if applicable. |
 | `data.correlationId` | Correlation reference. |
 | `data.createdAt` | Creation timestamp. |
 | `data.updatedAt` | Most recent update timestamp. |
@@ -513,7 +481,7 @@ Content-Type: application/json
 **Response structure**
 
 - Returns a collection of attempt records for the delivery.
-- Each item should include attempt identifier, sequence number, provider reference, outcome, retryable flag, failure category, error summary, and timestamps.
+- Each item should include attempt identifier, sequence number, provider name, outcome, failure category, error summary, response summary, and timestamps.
 
 **Status codes**
 
@@ -564,6 +532,7 @@ The API should use consistent JSON response envelopes across resource groups.
 
 ```json
 {
+  "success": true,
   "data": {
     "id": "resource-specific-id"
   },
@@ -577,6 +546,7 @@ The API should use consistent JSON response envelopes across resource groups.
 
 ```json
 {
+  "success": true,
   "data": [
     {
       "id": "resource-specific-id"
@@ -587,11 +557,7 @@ The API should use consistent JSON response envelopes across resource groups.
     "pagination": {
       "limit": 50,
       "nextCursor": "opaque-cursor-value"
-    },
-    "filters": {
-      "status": "retrying"
-    },
-    "sort": "-updatedAt"
+    }
   }
 }
 ```
@@ -600,16 +566,10 @@ The API should use consistent JSON response envelopes across resource groups.
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "validation_error",
-    "message": "Request validation failed.",
-    "details": [
-      {
-        "field": "event",
-        "issue": "required"
-      }
-    ],
-    "requestId": "req_01HXYZ999"
+    "message": "Request validation failed."
   }
 }
 ```
@@ -618,10 +578,10 @@ The API should use consistent JSON response envelopes across resource groups.
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "not_found",
-    "message": "The requested resource was not found.",
-    "requestId": "req_01HXYZ999"
+    "message": "The requested resource was not found."
   }
 }
 ```
@@ -630,19 +590,19 @@ The API should use consistent JSON response envelopes across resource groups.
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "forbidden",
-    "message": "The caller does not have permission to access this resource.",
-    "requestId": "req_01HXYZ999"
+    "message": "The caller does not have permission to access this resource."
   }
 }
 ```
 
 ### Envelope Conventions
 
-- Successful responses use `data` and `meta`.
-- Error responses use `error`.
-- `requestId` should be available for all responses, either in the body, in headers, or in both.
+- Successful responses use `success: true` plus `data`, with `meta` where request-scoped metadata is available.
+- Error responses use `success: false` plus `error`.
+- `requestId` should be available for operational read endpoints and in response headers where applicable.
 - Resource-specific identifiers such as `eventId`, `subscriptionId`, and `deliveryId` should remain explicit in resource payloads rather than hidden in generic metadata.
 
 ## 9. Status Code Conventions

@@ -191,7 +191,7 @@ The end-to-end lifecycle of the initial event-processing job should follow this 
 
 9. **Worker completes or schedules retries**
    - Deliveries that succeed move toward final completion.
-   - Deliveries that fail are classified and either retried later or marked terminally failed.
+   - Deliveries that fail are classified and either retried later or marked failed.
    - The event reaches a stable summary state once all derived deliveries are resolved or scheduled according to policy.
 
 ### Lifecycle Design Notes
@@ -252,7 +252,7 @@ Retry behavior should be treated as a first-class design concern rather than a m
 2. The worker classifies the failure.
 3. The worker decides whether the failure is retryable.
 4. If retryable and retry allowance remains, the worker records the attempt, updates delivery state to a retrying posture, and schedules later work.
-5. If not retryable or retry allowance is exhausted, the worker records a terminally failed outcome and stops retrying.
+5. If not retryable or retry allowance is exhausted, the worker records a failed outcome and stops retrying.
 
 ### Durable Retry State
 

@@ -135,7 +135,7 @@ At a high level, the platform must be able to:
 - **Event ingestion:** Receive event submissions from client applications through a consistent API contract.
 - **Payload validation:** Check required fields, structural correctness, and supported event naming conventions.
 - **Event persistence:** Store each event as a durable record before downstream processing begins.
-- **Event status tracking:** Maintain high-level lifecycle states such as received, queued, processed, and completed with failures if applicable.
+- **Event status tracking:** Maintain high-level lifecycle states such as accepted, queued, processing, completed, and failed as appropriate.
 
 ### Subscription Management
 
